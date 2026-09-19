@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Space weather, right now</title>
+<meta name="description" content="Live aurora forecast, solar wind and solar flares from NOAA data, on a globe you can spin.">
+<meta name="theme-color" content="#0D1B2E">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌌</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Red+Hat+Text:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --night: #0D1B2E;      /* polar night: page background */
+    --deep: #081322;       /* behind the globe */
+    --surface: #13263D;    /* raised areas */
+    --line: #25405E;       /* borders, gridlines */
+    --ice: #E8F0F8;        /* main text */
+    --mist: #93A7C0;       /* secondary text */
+    --aurora: #6BF0B0;     /* aurora and "good for aurora" */
+    --solar: #FFB54D;      /* the sun, flares */
+    --storm: #FF7A6B;      /* storm levels */
+    --display: "Red Hat Display", "Segoe UI", system-ui, sans-serif;
+    --text: "Red Hat Text", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--night);
+    color: var(--ice);
+    font: 400 1rem/1.5 var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--aurora); }
+  :focus-visible { outline: 2px solid var(--aurora); outline-offset: 3px; }
+
+  /* ---------- layout ---------- */
+  .stage {
+    position: relative;
+    height: 66vh;
+    height: 66svh;
+    min-height: 380px;
+    background: var(--deep);
+    overflow: hidden;
+  }
+  #globe { position: absolute; inset: 0; }
+  .stage-copy {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 4rem 1.25rem 1.1rem;
+    background: linear-gradient(to top, rgba(8, 19, 34, .95) 30%, rgba(8, 19, 34, 0));
+    pointer-events: none;
+  }
+  h1 {
+    font: 900 clamp(1.9rem, 7vw, 2.6rem)/1.05 var(--display);
+    letter-spacing: -0.02em;
+    margin: 0 0 .5rem;
+    max-width: 14ch;
+  }
+  .verdict { margin: 0; max-width: 38ch; font-size: 1.05rem; }
+  .legend { display: flex; align-items: center; gap: .6rem; margin-top: .6rem; font-size: .85rem; color: var(--mist); }
+  .legend i { display: block; width: 5.5rem; height: .45rem; border-radius: 999px;
+    background: linear-gradient(to right, rgb(34, 128, 110), rgb(107, 240, 176) 55%, rgb(214, 255, 234)); }
+  .freshness { margin: .35rem 0 0; color: var(--mist); font-size: .85rem; }
+  .freshness.stale { color: var(--storm); }
+  .hint {
+    position: absolute; top: .9rem; right: 1rem; margin: 0;
+    font-size: .8rem; color: var(--mist);
+    background: rgba(13, 27, 46, .7);
+    padding: .3rem .65rem; border-radius: 999px;
+    pointer-events: none;
+    transition: opacity .6s;
+  }
+  .hint.gone { opacity: 0; }
+
+  .panel { padding: 0 1.25rem 2.5rem; max-width: 34rem; margin: 0 auto; }
+
+  @media (min-width: 900px) {
+    .app { display: grid; grid-template-columns: minmax(0, 1fr) 27rem; height: 100vh; }
+    .stage { height: 100vh; min-height: 0; }
+    .stage-copy { padding: 5rem 2.5rem 2rem; }
+    .panel { height: 100vh; overflow-y: auto; padding: 1.5rem 2rem 3rem; max-width: none; border-left: 1px solid var(--line); }
+  }
+
+  /* ---------- spot check ---------- */
+  .spot {
+    display: grid; gap: .75rem;
+    padding: 1.1rem 0 1.4rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .spot p { margin: 0; color: var(--mist); }
+  .spot p.has-result { color: var(--ice); }
+  button {
+    justify-self: start;
+    font: 500 1rem var(--text);
+    color: var(--night);
+    background: var(--aurora);
+    border: 0; border-radius: .6rem;
+    padding: .7rem 1.1rem;
+    min-height: 44px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .6; cursor: progress; }
+
+  /* ---------- data sections ---------- */
+  .block { padding: 1.6rem 0; border-bottom: 1px solid var(--line); }
+  h2 { font: 700 1.2rem/1.2 var(--display); margin: 0 0 1rem; }
+  .big { font: 700 2.6rem/1 var(--display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .unit { color: var(--mist); font-size: .9rem; }
+  .note { color: var(--mist); font-size: .92rem; margin: .75rem 0 0; max-width: 42ch; }
+
+  .kp-now { display: flex; align-items: baseline; gap: .6rem; }
+  .kp-now .storm-tag { font: 700 .95rem var(--display); color: var(--storm); }
+  .kp-scale { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; margin-top: .9rem; }
+  .kp-scale span {
+    height: 1.9rem; border-radius: 3px;
+    display: grid; place-items: center;
+    font: 500 .78rem var(--display); color: var(--mist);
+    background: var(--surface);
+  }
+  .kp-scale span.on { background: var(--aurora); color: var(--night); }
+  .kp-scale span.on.storm { background: var(--storm); }
+  .kp-scale span.storm-start { box-shadow: inset 2px 0 0 var(--storm); }
+
+  .readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .readouts p { margin: .3rem 0 0; color: var(--mist); font-size: .9rem; }
+  .bz { display: flex; gap: .9rem; align-items: center; margin-top: 1.2rem; padding: .9rem; background: var(--surface); border-radius: .8rem; }
+  .bz svg { flex: none; width: 2.6rem; height: 2.6rem; }
+  .bz p { margin: 0; }
+  .bz .bz-value { font: 700 1.15rem var(--display); }
+  .bz .bz-note { color: var(--mist); font-size: .9rem; }
+
+  .flare-now { display: flex; align-items: baseline; gap: .8rem; flex-wrap: wrap; }
+  .flare-now .big { color: var(--solar); }
+  .flare-now p { margin: 0; color: var(--mist); }
+
+  .chart-wrap { position: relative; margin-top: 1.1rem; }
+  .chart-label { font-size: .82rem; color: var(--mist); margin: 0 0 .3rem; }
+  svg.chart { display: block; width: 100%; height: 76px; overflow: visible; }
+  .axis { display: flex; justify-content: space-between; font-size: .75rem; color: var(--mist); margin-top: .25rem; }
+  .bands { position: absolute; top: 0; right: 0; bottom: 0; width: 1.2rem; pointer-events: none; }
+  .bands span { position: absolute; right: 0; transform: translateY(-50%); font: 700 .75rem var(--display); color: var(--mist); }
+  #xray-chart { height: 120px; padding-right: 1.4rem; }
+
+  footer { padding-top: 1.6rem; color: var(--mist); font-size: .85rem; }
+  footer p { margin: 0 0 .7rem; max-width: 46ch; }
+
+  /* ---------- globe markers ---------- */
+  .marker { pointer-events: none; transform: translate(-50%, -50%); display: flex; align-items: center; gap: .35rem; font: 500 .78rem var(--text); white-space: nowrap; }
+  .marker i { display: block; width: .8rem; height: .8rem; border-radius: 50%; }
+  .marker.sun i { background: var(--solar); box-shadow: 0 0 14px 4px rgba(255, 181, 77, .7); }
+  .marker.sun { color: var(--solar); }
+  .marker.spot i { background: var(--ice); box-shadow: 0 0 0 3px rgba(232, 240, 248, .35); }
+  .marker.spot { color: var(--ice); }
+  .marker span { background: rgba(8, 19, 34, .75); padding: .1rem .4rem; border-radius: .4rem; }
+
+  /* ---------- solar wind streaks ---------- */
+  canvas.wind { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  /* ---------- storm gallery ---------- */
+  .back-live {
+    pointer-events: auto;
+    margin-top: .8rem;
+    background: var(--ice);
+  }
+  .gallery { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+  .gallery button {
+    width: 100%;
+    display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+    text-align: left;
+    background: var(--surface);
+    color: var(--ice);
+    border: 1px solid var(--line);
+  }
+  .gallery button[aria-pressed="true"] { border-color: var(--aurora); box-shadow: inset 3px 0 0 var(--aurora); }
+  .gallery .level { font: 700 .95rem var(--display); color: var(--storm); white-space: nowrap; }
+  .gallery .when { display: block; }
+  .gallery .detail { display: block; color: var(--mist); font-size: .85rem; }
+
+  /* ---------- live Sun image ---------- */
+  .sun-figure { margin: 0 0 1.3rem; }
+  .sun-figure img {
+    display: block; width: 100%; max-width: 22rem; height: auto; aspect-ratio: 1;
+    margin: 0 auto; border-radius: .8rem;
+    background: #000; object-fit: contain;
+  }
+  .sun-figure figcaption { color: var(--mist); font-size: .85rem; margin-top: .6rem; text-align: center; }
+  .wavelengths { display: flex; justify-content: center; gap: .35rem; margin-top: .8rem; flex-wrap: wrap; }
+  .wavelengths button {
+    font-size: .88rem; min-height: 40px; padding: .45rem .8rem;
+    background: transparent; color: var(--mist); border: 1px solid var(--line);
+  }
+  .wavelengths button[aria-pressed="true"] { background: var(--solar); color: var(--night); border-color: var(--solar); }
+  .sun-missing { text-align: center; color: var(--mist); padding: 3rem 1rem; background: var(--surface); border-radius: .8rem; }
+
+  @media (prefers-reduced-motion: reduce) { .hint { transition: none; } }
+</style>
+</head>
+<body>
+<main class="app">
+  <section class="stage" aria-label="Globe showing the current aurora forecast">
+    <div id="globe"></div>
+    <canvas class="wind" id="wind" aria-hidden="true"></canvas>
+    <p class="hint" id="hint">Drag to spin, tap to check a place</p>
+    <div class="stage-copy">
+      <h1>Space weather, right now</h1>
+      <p class="verdict" id="verdict">Loading the latest readings…</p>
+      <div class="legend" id="legend" hidden>
+        <span>Aurora chance</span>
+        <i aria-hidden="true"></i>
+        <span id="legend-peak"></span>
+      </div>
+      <p class="freshness" id="freshness"></p>
+      <button type="button" class="back-live" id="back-live" hidden>Back to live</button>
+    </div>
+  </section>
+
+  <div class="panel">
+    <section class="spot" aria-live="polite">
+      <button type="button" id="locate">Check my location</button>
+      <p id="spot-text">Tap anywhere on the globe, or share your location, to see the chance of aurora there.</p>
+    </section>
+
+    <section class="block" aria-labelledby="storms-h">
+      <h2 id="storms-h">Storm gallery</h2>
+      <p class="note" id="storms-note" style="margin-top:0"></p>
+      <ul class="gallery" id="gallery"></ul>
+    </section>
+
+    <section class="block" aria-labelledby="kp-h">
+      <h2 id="kp-h">Geomagnetic activity</h2>
+      <div class="kp-now">
+        <span class="big" id="kp-value">–</span>
+        <span class="unit">Kp index</span>
+        <span class="storm-tag" id="kp-storm"></span>
+      </div>
+      <div class="kp-scale" id="kp-scale" aria-hidden="true"></div>
+      <p class="note">Kp runs from 0 (calm) to 9 (extreme). At 5 and above it's a geomagnetic storm, and the aurora spreads towards the equator.</p>
+      <div class="chart-wrap">
+        <p class="chart-label">Past 7 days, every 3 hours</p>
+        <svg class="chart" id="kp-chart" viewBox="0 0 300 76" preserveAspectRatio="none" role="img" aria-label="Kp index over the past 7 days"></svg>
+        <div class="axis"><span>7 days ago</span><span>Now</span></div>
+      </div>
+    </section>
+
+    <section class="block" aria-labelledby="wind-h">
+      <h2 id="wind-h">Solar wind</h2>
+      <div class="readouts">
+        <div><span class="big" id="speed">–</span> <span class="unit">km/s</span><p>Speed</p></div>
+        <div><span class="big" id="density">–</span> <span class="unit">per cm³</span><p>Density</p></div>
+      </div>
+      <p class="note">The streaks flowing past the globe move at a pace scaled from this speed.</p>
+      <div class="bz">
+        <svg id="bz-arrow" viewBox="0 0 40 40" aria-hidden="true"></svg>
+        <div>
+          <p class="bz-value">Magnetic field Bz: <span id="bz">–</span> nT</p>
+          <p class="bz-note" id="bz-note"></p>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <p class="chart-label">Speed, past 24 hours</p>
+        <svg class="chart" id="speed-chart" viewBox="0 0 300 76" preserveAspectRatio="none" role="img" aria-label="Solar wind speed over the past 24 hours"></svg>
+      </div>
+      <div class="chart-wrap">
+        <p class="chart-label">Bz, past 24 hours (green = pointing south, good for aurora)</p>
+        <svg class="chart" id="bz-chart" viewBox="0 0 300 76" preserveAspectRatio="none" role="img" aria-label="Bz over the past 24 hours"></svg>
+        <div class="axis"><span>24 hours ago</span><span>Now</span></div>
+      </div>
+    </section>
+
+    <section class="block" aria-labelledby="flare-h">
+      <h2 id="flare-h">Solar flares</h2>
+      <figure class="sun-figure">
+        <img id="sun-img" alt="" loading="lazy" width="512" height="512">
+        <p class="sun-missing" id="sun-missing" hidden>This image isn't available right now. NOAA usually restores it within a few minutes.</p>
+        <div class="wavelengths" id="wavelengths" role="group" aria-label="Choose which layer of the Sun to show">
+          <button type="button" data-wl="131" aria-pressed="true">Flares</button>
+          <button type="button" data-wl="195" aria-pressed="false">Corona</button>
+          <button type="button" data-wl="304" aria-pressed="false">Lower atmosphere</button>
+        </div>
+        <figcaption id="sun-caption"></figcaption>
+      </figure>
+      <div class="flare-now">
+        <span class="big" id="flare-class">–</span>
+        <p id="flare-note"></p>
+      </div>
+      <p class="note">Flares are graded A, B, C, M and X, each ten times stronger than the last. M and X flares can disrupt radio on Earth's sunlit side.</p>
+      <div class="chart-wrap">
+        <p class="chart-label">X-ray brightness, past 24 hours</p>
+        <svg class="chart" id="xray-chart" viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Solar X-ray flux over the past 24 hours"></svg>
+        <div class="bands" id="bands" aria-hidden="true"></div>
+        <div class="axis"><span>24 hours ago</span><span>Now</span></div>
+      </div>
+    </section>
+
+    <footer>
+      <p>Data from the NOAA Space Weather Prediction Center: the Kp index, real-time solar wind, GOES X-ray flux and the OVATION aurora forecast. Updated hourly.</p>
+      <p>The aurora chance is the forecast probability of aurora directly overhead. On a clear, dark night it can often be seen low on the horizon from a few hundred kilometres further away.</p>
+      <p id="credit">Built by Datumax.</p>
+    </footer>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/globe.gl@2"></script>
+<script>
+// Add your GitHub repo URL here to show a "source code" link in the footer
+const REPO_URL = "https://github.com/yourname/noaa-space-weather-dashboard";
+
+const DATA_URL = "data/dashboard.json";
+const IMG = "https://cdn.jsdelivr.net/npm/three-globe@2/example/img/";
+const REFRESH_MS = 10 * 60 * 1000;
+const RAD = Math.PI / 180;
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const $ = (id) => document.getElementById(id);
+
+let data = null;        // latest dashboard.json
+let grid = null;        // aurora probabilities being shown, Uint8Array 360 x 181
+let liveGrid = null;    // the latest forecast
+let viewing = null;     // a storm from the gallery, or null for live
+const stormCache = {};
+let spot = null;        // the place the person tapped or shared
+let firstView = true;
+
+// ------------------------------------------------------------ small helpers
+
+const t = (iso) => (iso ? Date.parse(iso) : NaN);
+const fmt = (v, digits = 0) => (v == null ? "–" : Number(v).toFixed(digits));
+
+function ago(iso) {
+  const mins = Math.round((Date.now() - t(iso)) / 60000);
+  if (!isFinite(mins)) return "at an unknown time";
+  if (mins < 2) return "just now";
+  if (mins < 90) return `${mins} minutes ago`;
+  const hours = Math.round(mins / 60);
+  return hours < 48 ? `${hours} hours ago` : `${Math.round(hours / 24)} days ago`;
+}
+
+function fmtCoord(lat, lng) {
+  const la = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}`;
+  const lo = `${Math.abs(lng).toFixed(1)}°${lng >= 0 ? "E" : "W"}`;
+  return `${la}, ${lo}`;
+}
+
+// The moment the globe shows: now, or when the selected storm was recorded
+const viewTime = () => (viewing ? new Date(viewing.forecast_time) : new Date());
+
+// Where the Sun is directly overhead (accurate to a fraction of a degree)
+function subsolarPoint(date) {
+  const d = (date.getTime() - Date.UTC(2000, 0, 1, 12)) / 86400000;
+  const g = (357.529 + 0.98560028 * d) * RAD;
+  const q = 280.459 + 0.98564736 * d;
+  const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * RAD;
+  const e = (23.439 - 0.00000036 * d) * RAD;
+  const dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)) / RAD;
+  const gmst = 280.46061837 + 360.98564736629 * d;
+  let lng = (ra - gmst) % 360;
+  if (lng > 180) lng -= 360;
+  if (lng < -180) lng += 360;
+  return { lat: dec / RAD, lng };
+}
+
+// Cosine of the Sun's angle from overhead: > 0 day, < -0.1 properly dark
+function sunHeight(lat, lng, sun) {
+  return Math.sin(lat * RAD) * Math.sin(sun.lat * RAD) +
+         Math.cos(lat * RAD) * Math.cos(sun.lat * RAD) * Math.cos((lng - sun.lng) * RAD);
+}
+
+function decodeGrid(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function auroraAt(lat, lng) {
+  if (!grid) return null;
+  const row = Math.max(0, Math.min(180, Math.round(90 - lat)));
+  const col = ((Math.round(lng) + 180) % 360 + 360) % 360;
+  return grid[row * 360 + col];
+}
+
+// ------------------------------------------------------------------- globe
+
+const globeEl = $("globe");
+const world = new Globe(globeEl)
+  .backgroundImageUrl(IMG + "night-sky.png")
+  .globeImageUrl(IMG + "earth-night.jpg")
+  .bumpImageUrl(IMG + "earth-topology.png")
+  .showAtmosphere(true)
+  .atmosphereColor("#7FB8FF")
+  .atmosphereAltitude(0.16)
+  .htmlElementsData([])
+  .htmlElement((d) => d.el)
+  .onGlobeClick(({ lat, lng }) => setSpot(lat, lng, false))
+  // Aurora "curtains": one thin glowing column per grid cell
+  .pointsData([])
+  .pointLat("lat")
+  .pointLng("lng")
+  .pointAltitude("alt")
+  .pointColor("color")
+  .pointRadius(0.42)
+  .pointResolution(6)
+  .pointsMerge(true)
+  .pointsTransitionDuration(0);
+
+if (world.htmlElementVisibilityModifier) {
+  world.htmlElementVisibilityModifier((el, visible) => { el.style.opacity = visible ? 1 : 0; });
+}
+world.renderer().setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+const controls = world.controls();
+controls.autoRotate = !reducedMotion;
+controls.autoRotateSpeed = 0.35;
+controls.minDistance = 140;
+controls.maxDistance = 520;
+controls.addEventListener("start", () => {
+  controls.autoRotate = false;
+  $("hint").classList.add("gone");
+});
+
+const fit = () => world.width(globeEl.clientWidth).height(globeEl.clientHeight);
+new ResizeObserver(fit).observe(globeEl);
+fit();
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Couldn't load " + url));
+    img.src = url;
+  });
+}
+
+let earthImages = null;
+
+// Paint one texture: daylight, night with city lights, and the aurora glow.
+// One image is far smoother on phones than thousands of 3D points.
+async function paintEarth() {
+  earthImages = earthImages || await Promise.all([
+    loadImage(IMG + "earth-blue-marble.jpg"),
+    loadImage(IMG + "earth-night.jpg"),
+  ]);
+  const W = 2048, H = 1024;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const pixels = (img) => { ctx.drawImage(img, 0, 0, W, H); return ctx.getImageData(0, 0, W, H).data; };
+  const day = pixels(earthImages[0]);
+  const night = pixels(earthImages[1]);
+  const out = ctx.createImageData(W, H);
+  const o = out.data;
+
+  const sun = subsolarPoint(viewTime());
+  const sinD = Math.sin(sun.lat * RAD), cosD = Math.cos(sun.lat * RAD);
+  const cosLon = new Float32Array(W);
+  for (let x = 0; x < W; x++) cosLon[x] = Math.cos((-180 + (x + 0.5) * 360 / W - sun.lng) * RAD);
+
+  for (let y = 0; y < H; y++) {
+    const lat = 90 - (y + 0.5) * 180 / H;
+    const sinL = Math.sin(lat * RAD), cosL = Math.cos(lat * RAD);
+    const gr = (y + 0.5) * 180 / H;
+    const r0 = Math.min(180, Math.floor(gr)), r1 = Math.min(180, r0 + 1), fr = gr - r0;
+
+    for (let x = 0; x < W; x++) {
+      const h = sinL * sinD + cosL * cosD * cosLon[x];
+      let n = Math.min(1, Math.max(0, (0.1 - h) / 0.2));
+      n = n * n * (3 - 2 * n);                        // soft twilight edge
+      const i = (y * W + x) * 4;
+      let r = day[i] * 0.85 * (1 - n) + night[i] * 1.5 * n;
+      let g = day[i + 1] * 0.85 * (1 - n) + night[i + 1] * 1.5 * n;
+      let b = day[i + 2] * 0.85 * (1 - n) + night[i + 2] * 1.5 * n;
+
+      if (grid) {
+        const gc = (x + 0.5) * 360 / W;
+        const c0 = Math.floor(gc) % 360, c1 = (c0 + 1) % 360, fc = gc - Math.floor(gc);
+        const v = ((grid[r0 * 360 + c0] * (1 - fc) + grid[r0 * 360 + c1] * fc) * (1 - fr) +
+                   (grid[r1 * 360 + c0] * (1 - fc) + grid[r1 * 360 + c1] * fc) * fr) / 100;
+        if (v > 0.02) {
+          // Square root lifts low probabilities so quiet-time ovals still show
+          let a = Math.sqrt(Math.min(1, (v - 0.02) / 0.25));
+          a *= 0.45 + 0.55 * n;                        // brighter on the night side
+          r += 90 * a; g += 255 * a; b += 170 * a;
+        }
+      }
+      o[i] = r; o[i + 1] = g; o[i + 2] = b; o[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+  world.globeImageUrl(canvas.toDataURL("image/jpeg", 0.88));
+}
+
+function marker(kind, label) {
+  const el = document.createElement("div");
+  el.className = `marker ${kind}`;
+  el.innerHTML = `<i></i><span></span>`;
+  el.querySelector("span").textContent = label;
+  return el;
+}
+
+function updateMarkers() {
+  const sun = subsolarPoint(viewTime());
+  const items = [{ ...sun, el: marker("sun", "Sun overhead") }];
+  if (spot) items.push({ lat: spot.lat, lng: spot.lng, el: marker("spot", spot.mine ? "You" : "") });
+  world.htmlElementsData(items);
+}
+
+// Colour runs from dim teal (low chance) to bright green, then near-white
+const CURTAIN_STOPS = [[0.04, [34, 128, 110]], [0.3, [107, 240, 176]], [0.7, [214, 255, 234]]];
+function curtainColor(p, light) {
+  let c = CURTAIN_STOPS[CURTAIN_STOPS.length - 1][1];
+  for (let i = 0; i < CURTAIN_STOPS.length - 1; i++) {
+    const [p0, c0] = CURTAIN_STOPS[i], [p1, c1] = CURTAIN_STOPS[i + 1];
+    if (p <= p1) {
+      const f = Math.max(0, (p - p0) / (p1 - p0));
+      c = c0.map((v, k) => v + (c1[k] - v) * f);
+      break;
+    }
+  }
+  const [r, g, b] = c.map((v) => Math.round(v * light));
+  return `rgb(${r},${g},${b})`;
+}
+
+function buildCurtains() {
+  if (!grid) { world.pointsData([]); return; }
+  const sun = subsolarPoint(viewTime());
+  let cells = [];
+  for (let row = 0; row < 181; row++) {
+    for (let col = 0; col < 360; col++) {
+      const v = grid[row * 360 + col];
+      if (v >= 4) cells.push([90 - row, col - 180, v]);
+    }
+  }
+  // Keep phones smooth during big storms by thinning very large ovals
+  if (cells.length > 7000) cells = cells.filter(([, lng]) => lng % 2 === 0);
+
+  world.pointsData(cells.map(([lat, lng, v]) => {
+    const h = sunHeight(lat, lng, sun);
+    const light = h > 0.1 ? 0.5 : h > -0.1 ? 0.75 : 1;   // dimmer where it's daylight
+    return { lat, lng, alt: 0.006 + (v / 100) * 0.14, color: curtainColor(v / 100, light) };
+  }));
+}
+
+// --------------------------------------------------------------- spot check
+
+function setSpot(lat, lng, mine) {
+  spot = { lat, lng, mine };
+  updateMarkers();
+  const p = auroraAt(lat, lng);
+  const h = sunHeight(lat, lng, subsolarPoint(viewTime()));
+  const where = (mine ? "Your location" : fmtCoord(lat, lng)) + (viewing ? " during this storm" : "");
+  let text;
+  if (p == null) {
+    text = `${where}: the aurora forecast isn't available right now.`;
+  } else {
+    const light = h > 0 ? "It's daytime there, so any aurora would be washed out."
+                : h > -0.1 ? "It's twilight there, so only a strong aurora would show."
+                : "It's dark there now.";
+    const verdict = p >= 30 ? "Good chance of aurora overhead if skies are clear."
+                  : p >= 10 ? "Some chance of aurora overhead."
+                  : p >= 3 ? "Aurora unlikely overhead, but it may show low on the horizon."
+                  : "Aurora very unlikely.";
+    text = `${where}: ${p}% chance of aurora. ${verdict} ${light}`;
+  }
+  const el = $("spot-text");
+  el.textContent = text;
+  el.classList.add("has-result");
+}
+
+$("locate").addEventListener("click", () => {
+  const btn = $("locate");
+  if (!navigator.geolocation) {
+    $("spot-text").textContent = "This browser can't share location. Tap the globe instead.";
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "Finding you…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = +pos.coords.latitude.toFixed(1), lng = +pos.coords.longitude.toFixed(1);
+      controls.autoRotate = false;
+      world.pointOfView({ lat, lng, altitude: 1.8 }, reducedMotion ? 0 : 1200);
+      setSpot(lat, lng, true);
+      btn.disabled = false;
+      btn.textContent = "Check my location";
+    },
+    () => {
+      $("spot-text").textContent = "Location wasn't shared. Tap the globe to check a place instead.";
+      btn.disabled = false;
+      btn.textContent = "Check my location";
+    },
+    { timeout: 10000, maximumAge: 600000 }
+  );
+});
+
+// ------------------------------------------------------------------ charts
+
+const NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs) {
+  const el = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function linePath(points, x, y) {
+  let d = "", pen = false;
+  for (const [tt, v] of points) {
+    if (v == null) { pen = false; continue; }
+    d += `${pen ? "L" : "M"}${x(tt).toFixed(1)},${y(v).toFixed(1)}`;
+    pen = true;
+  }
+  return d;
+}
+
+function timeScale(t0, t1, w = 300) {
+  return (iso) => ((t(iso) - t0) / (t1 - t0)) * w;
+}
+
+function drawKp(series, now) {
+  const svg = $("kp-chart"); svg.replaceChildren();
+  const H = 76, t0 = now - 7 * 864e5, x = timeScale(t0, now);
+  const barW = 300 / 56 - 1;
+  svg.append(svgEl("line", { x1: 0, x2: 300, y1: H - (5 / 9) * H, y2: H - (5 / 9) * H,
+    stroke: "var(--storm)", "stroke-dasharray": "3 3", "vector-effect": "non-scaling-stroke", opacity: 0.7 }));
+  for (const [tt, kp] of series) {
+    if (kp == null) continue;
+    const h = Math.max(1.5, (kp / 9) * H);
+    svg.append(svgEl("rect", { x: x(tt).toFixed(1), y: (H - h).toFixed(1), width: barW.toFixed(2), height: h.toFixed(1),
+      fill: Math.round(kp) >= 5 ? "var(--storm)" : "var(--aurora)", rx: 0.8 }));
+  }
+}
+
+function drawSpeed(series, now) {
+  const svg = $("speed-chart"); svg.replaceChildren();
+  const H = 76, x = timeScale(now - 864e5, now);
+  const vals = series.map((r) => r[1]).filter((v) => v != null);
+  if (!vals.length) return;
+  const lo = Math.min(300, ...vals) - 20, hi = Math.max(700, ...vals) + 20;
+  const y = (v) => H - ((v - lo) / (hi - lo)) * H;
+  svg.append(svgEl("path", { d: linePath(series.map((r) => [r[0], r[1]]), x, y),
+    fill: "none", stroke: "var(--ice)", "stroke-width": 1.6, "vector-effect": "non-scaling-stroke" }));
+}
+
+function drawBz(series, now) {
+  const svg = $("bz-chart"); svg.replaceChildren();
+  const H = 76, mid = H / 2, x = timeScale(now - 864e5, now);
+  const vals = series.map((r) => r[3]).filter((v) => v != null);
+  if (!vals.length) return;
+  const range = Math.max(10, ...vals.map(Math.abs));
+  svg.append(svgEl("line", { x1: 0, x2: 300, y1: mid, y2: mid, stroke: "var(--line)", "vector-effect": "non-scaling-stroke" }));
+  const w = 300 / 144;
+  for (const r of series) {
+    const bz = r[3];
+    if (bz == null) continue;
+    const h = (Math.abs(bz) / range) * mid;
+    svg.append(svgEl("rect", { x: x(r[0]).toFixed(1), width: (w * 0.8).toFixed(2),
+      y: (bz < 0 ? mid : mid - h).toFixed(1), height: Math.max(0.5, h).toFixed(1),
+      fill: bz < 0 ? "var(--aurora)" : "var(--mist)", opacity: bz < 0 ? 1 : 0.55 }));
+  }
+}
+
+function drawXray(series, now) {
+  const svg = $("xray-chart"); svg.replaceChildren();
+  const bands = $("bands"); bands.replaceChildren();
+  const H = 120, lo = -8.5, hi = -3.5, x = timeScale(now - 864e5, now);
+  const y = (flux) => H - ((Math.log10(flux) - lo) / (hi - lo)) * H;
+  [-8, -7, -6, -5, -4].forEach((p, i) => {
+    const yy = y(10 ** p);
+    if (p > -8) svg.append(svgEl("line", { x1: 0, x2: 300, y1: yy, y2: yy, stroke: "var(--line)",
+      "stroke-dasharray": "2 3", "vector-effect": "non-scaling-stroke" }));
+    const label = document.createElement("span");
+    label.textContent = "ABCMX"[i];
+    label.style.top = `${(y(10 ** (p + (p === -4 ? 0.25 : 0.5))) / H) * 100}%`;
+    if (i >= 3) label.style.color = "var(--solar)";
+    bands.append(label);
+  });
+  svg.append(svgEl("path", { d: linePath(series.filter((r) => r[1] > 0), x, y),
+    fill: "none", stroke: "var(--solar)", "stroke-width": 1.6, "vector-effect": "non-scaling-stroke" }));
+}
+
+function drawBzArrow(bz) {
+  const svg = $("bz-arrow"); svg.replaceChildren();
+  if (bz == null) return;
+  const south = bz < 0;
+  svg.append(svgEl("circle", { cx: 20, cy: 20, r: 19, fill: "none", stroke: "var(--line)" }));
+  svg.append(svgEl("path", {
+    d: south ? "M20 8 V30 M12 22 L20 31 L28 22" : "M20 32 V10 M12 18 L20 9 L28 18",
+    fill: "none", stroke: south ? "var(--aurora)" : "var(--mist)", "stroke-width": 3,
+    "stroke-linecap": "round", "stroke-linejoin": "round",
+  }));
+}
+
+// ---------------------------------------------------------------- render
+
+function render(d) {
+  const now = t(d.generated_at) || Date.now();
+  const kp = d.kp?.latest?.kp, storm = d.kp?.latest?.storm;
+
+  // Kp
+  $("kp-value").textContent = fmt(kp, 1);
+  $("kp-storm").textContent = storm && storm !== "None" ? `Storm ${storm}` : "";
+  const scale = $("kp-scale"); scale.replaceChildren();
+  for (let i = 0; i <= 9; i++) {
+    const s = document.createElement("span");
+    s.textContent = i;
+    if (kp != null && i <= Math.round(kp)) s.classList.add("on");
+    if (i >= 5) s.classList.add("storm");
+    if (i === 5) s.classList.add("storm-start");
+    scale.append(s);
+  }
+  drawKp(d.kp?.series || [], now);
+
+  // Solar wind
+  const w = d.solar_wind?.latest || {};
+  $("speed").textContent = fmt(w.speed);
+  $("density").textContent = fmt(w.density, 1);
+  $("bz").textContent = w.bz == null ? "–" : (w.bz > 0 ? "+" : "") + fmt(w.bz, 1);
+  $("bz-note").textContent = w.bz == null ? "No recent reading."
+    : w.bz <= -5 ? "Pointing south. This lets solar wind energy in and boosts the aurora."
+    : w.bz < 0 ? "Slightly south. A small boost for the aurora."
+    : "Pointing north. This holds the aurora back.";
+  drawBzArrow(w.bz);
+  drawSpeed(d.solar_wind?.series || [], now);
+  drawBz(d.solar_wind?.series || [], now);
+
+  // Flares
+  const x = d.xray || {};
+  $("flare-class").textContent = x.latest?.class || "–";
+  $("flare-note").textContent = x.peak_24h?.class
+    ? `now, with a peak of ${x.peak_24h.class} in the past 24 hours` : "";
+  drawXray(x.series || [], now);
+
+  if (REPO_URL) $("credit").innerHTML = `Built by Datumax. <a href="${REPO_URL}">See the source code</a>.`;
+}
+
+const fmtWhen = (iso) => new Date(iso).toLocaleString(undefined, {
+  day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+});
+
+// The text over the globe: live conditions, or the storm being replayed
+function renderHeadline() {
+  const d = data;
+  if (!d) return;
+  const fresh = $("freshness");
+  const a = viewing || d.aurora;
+  $("legend").hidden = !a;
+  if (a) {
+    const peak = Math.max(a.north_max ?? 0, a.south_max ?? 0);
+    $("legend-peak").textContent = `peak ${peak}% ${viewing ? "at the time" : "right now"}`;
+  }
+  $("back-live").hidden = !viewing;
+
+  if (viewing) {
+    let v = `Replaying the storm of ${fmtWhen(viewing.forecast_time)}: Kp ${fmt(viewing.kp, 1)}, level ${viewing.storm}.`;
+    if (viewing.north_boundary_lat != null) v += ` The northern aurora reached about ${Math.round(viewing.north_boundary_lat)}°N.`;
+    $("verdict").textContent = v;
+    fresh.textContent = "The readings below are still live.";
+    fresh.classList.remove("stale");
+    return;
+  }
+
+  const kp = d.kp?.latest?.kp, storm = d.kp?.latest?.storm;
+  const boundary = d.aurora?.north_boundary_lat;
+  const flare = d.xray?.peak_24h?.class;
+  let v = kp == null ? "Waiting for the first readings."
+        : storm && storm !== "None" ? `A geomagnetic storm is under way (level ${storm}).`
+        : kp >= 4 ? "Conditions are active." : "Conditions are quiet.";
+  if (boundary != null) v += ` The northern aurora reaches about ${Math.round(boundary)}°N.`;
+  if (flare && /^[MX]/.test(flare)) v += ` An ${flare} solar flare erupted in the past day.`;
+  $("verdict").textContent = v;
+
+  fresh.textContent = `Updated ${ago(d.generated_at)}`;
+  const stale = Date.now() - t(d.generated_at) > 3 * 3600e3;
+  fresh.classList.toggle("stale", stale);
+  if (stale) fresh.textContent += ". The hourly update may have stopped.";
+}
+
+// ----------------------------------------------------------- storm gallery
+
+function renderGallery() {
+  const list = $("gallery");
+  list.replaceChildren();
+  const storms = data?.storms || [];
+  $("storms-note").textContent = storms.length
+    ? "Tap a storm to replay its aurora on the globe, with the Sun where it was at the time."
+    : "No storms recorded yet. Whenever the Kp index reaches 5, the aurora forecast is saved here automatically, so this fills up as storms happen.";
+
+  for (const st of storms) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("aria-pressed", String(viewing?.file === st.file));
+    const reach = st.north_boundary_lat != null
+      ? `Aurora reached about ${Math.round(st.north_boundary_lat)}°N` : "Aurora extent unknown";
+    btn.innerHTML = `<span><span class="when"></span><span class="detail"></span></span><span class="level"></span>`;
+    btn.querySelector(".when").textContent = fmtWhen(st.forecast_time);
+    btn.querySelector(".detail").textContent = reach;
+    btn.querySelector(".level").textContent = `Kp ${fmt(st.kp, 1)}, ${st.storm}`;
+    btn.addEventListener("click", () => (viewing?.file === st.file ? showLive() : showStorm(st)));
+    li.append(btn);
+    list.append(li);
+  }
+}
+
+async function showStorm(meta) {
+  try {
+    if (!stormCache[meta.file]) {
+      const res = await fetch(meta.file);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      stormCache[meta.file] = await res.json();
+    }
+  } catch (err) {
+    $("storms-note").textContent = "That storm couldn't be loaded. Check your connection and try again.";
+    return;
+  }
+  viewing = meta;
+  grid = decodeGrid(stormCache[meta.file].grid_b64);
+  await showView(true);
+}
+
+function showLive() {
+  viewing = null;
+  grid = liveGrid;
+  showView(true);
+}
+$("back-live").addEventListener("click", showLive);
+
+// Redraw everything on the globe for the current view (live or a storm)
+async function showView(fly) {
+  renderHeadline();
+  renderGallery();
+  buildCurtains();
+  updateMarkers();
+  if (spot) setSpot(spot.lat, spot.lng, spot.mine);
+  if (fly) {
+    const sun = subsolarPoint(viewTime());
+    controls.autoRotate = false;
+    world.pointOfView({ lat: 55, lng: ((sun.lng + 360) % 360) - 180, altitude: 2.3 }, reducedMotion ? 0 : 1200);
+    if (innerWidth < 900) window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+  }
+  try {
+    await paintEarth();
+  } catch (err) {
+    console.warn("Couldn't paint the aurora layer:", err);
+  }
+}
+
+// ------------------------------------------------------------ live Sun image
+
+const SUVI = "https://services.swpc.noaa.gov/images/animations/suvi/primary/";
+const SUN_LAYERS = {
+  131: "At 131 ångströms, flaring plasma of around 10 million °C shines brightest.",
+  195: "At 195 ångströms you see the corona at around 1.5 million °C. Dark patches are coronal holes, where fast solar wind escapes.",
+  304: "At 304 ångströms you see the lower atmosphere at around 50,000 °C, with filaments and prominences.",
+};
+let sunLayer = "131";
+
+function showSun(wl) {
+  sunLayer = wl;
+  const img = $("sun-img");
+  img.onload = () => { img.hidden = false; $("sun-missing").hidden = true; };
+  img.onerror = () => { img.hidden = true; $("sun-missing").hidden = false; };
+  img.alt = `The Sun in extreme ultraviolet light at ${wl} ångströms`;
+  img.src = `${SUVI}${wl}/latest.png?v=${Math.floor(Date.now() / REFRESH_MS)}`;
+  $("sun-caption").textContent = `Latest image from the SUVI telescope on NOAA's GOES weather satellite. ${SUN_LAYERS[wl]}`;
+  for (const b of $("wavelengths").querySelectorAll("button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.wl === wl));
+  }
+}
+$("wavelengths").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b) showSun(b.dataset.wl);
+});
+
+// ------------------------------------------------------- solar wind streaks
+// Streaks flow from the Sun's direction and part around the Earth, like the
+// solar wind meeting the magnetosphere. Their speed follows the measured wind.
+
+const windCanvas = $("wind");
+const wctx = windCanvas.getContext("2d");
+const streaks = [];
+
+function sizeWind() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  windCanvas.width = globeEl.clientWidth * dpr;
+  windCanvas.height = globeEl.clientHeight * dpr;
+  wctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(sizeWind).observe(globeEl);
+sizeWind();
+
+// Positions are in units of the stand-off distance; x runs downstream
+function spawn(p, anywhere) {
+  p.x = anywhere ? -4 + Math.random() * 8 : -4 - Math.random() * 0.6;
+  p.y = (Math.random() * 2 - 1) * 3.4;
+  p.age = 0;
+  if (p.x * p.x + p.y * p.y < 1.2) p.x = -4;
+  return p;
+}
+for (let i = 0; i < (innerWidth < 600 ? 90 : 160); i++) streaks.push(spawn({}, true));
+
+// Classic flow past a cylinder: the wind slows, parts and rejoins behind
+function flow(x, y) {
+  const r2 = x * x + y * y, r4 = r2 * r2;
+  return [1 - (x * x - y * y) / r4, (-2 * x * y) / r4];
+}
+
+let lastFrame = performance.now();
+function drawWind(nowMs) {
+  requestAnimationFrame(drawWind);
+  const dt = Math.min(0.05, (nowMs - lastFrame) / 1000);
+  lastFrame = nowMs;
+  const W = globeEl.clientWidth, H = globeEl.clientHeight;
+  wctx.clearRect(0, 0, W, H);
+
+  const c = world.getScreenCoords(0, 0, -1);                  // globe centre
+  const sun = subsolarPoint(viewTime());
+  const s = world.getScreenCoords(sun.lat, sun.lng, 0.2);     // towards the Sun
+  if (!c || !s) return;
+  let fx = c.x - s.x, fy = c.y - s.y;
+  const len = Math.hypot(fx, fy);
+  if (!len) return;
+  fx /= len; fy /= len;
+  const gx = -fy, gy = fx;
+
+  // Globe radius on screen, to scale the flow around it
+  const cam = world.camera();
+  const dist = cam.position.length();
+  const rpx = (H / 2) / Math.tan((cam.fov * RAD) / 2) * (100 / Math.sqrt(Math.max(1, dist * dist - 1e4)));
+  // Fade out when the Sun is straight behind or in front of the globe
+  const vis = Math.min(1, Math.max(0, (len / (1.2 * rpx) - 0.15) / 0.45));
+  if (vis <= 0) return;
+
+  const a = rpx * 1.45;
+  const speed = viewing?.speed ?? data?.solar_wind?.latest?.speed ?? 400;
+  const U = 0.45 * (speed / 400);
+  const tail = 0.4 * U;
+  wctx.lineWidth = 1.2;
+  wctx.lineCap = "round";
+
+  for (const p of streaks) {
+    const [vx, vy] = flow(p.x, p.y);
+    p.x += vx * U * dt;
+    p.y += vy * U * dt;
+    p.age += dt;
+    if (p.x > 4 || Math.abs(p.y) > 3.6 || p.x * p.x + p.y * p.y < 1.03) { spawn(p, false); continue; }
+    const hx = p.x, hy = p.y, tx = p.x - vx * tail, ty = p.y - vy * tail;
+    const fade = Math.min(1, p.age / 0.6) * Math.min(1, (4 - p.x) / 0.8);
+    wctx.strokeStyle = `rgba(255, 214, 160, ${(0.5 * vis * fade).toFixed(3)})`;
+    wctx.beginPath();
+    wctx.moveTo(c.x + (tx * fx + ty * gx) * a, c.y + (tx * fy + ty * gy) * a);
+    wctx.lineTo(c.x + (hx * fx + hy * gx) * a, c.y + (hx * fy + hy * gy) * a);
+    wctx.stroke();
+  }
+}
+if (!reducedMotion) requestAnimationFrame(drawWind);
+
+// ------------------------------------------------------------------ refresh
+
+async function refresh() {
+  try {
+    const res = await fetch(DATA_URL, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    if (!data) {
+      $("verdict").textContent = "The data file couldn't be loaded. If you're previewing locally, run export_dashboard.py first, then reload.";
+    }
+    return;
+  }
+  liveGrid = data.aurora?.grid_b64 ? decodeGrid(data.aurora.grid_b64) : null;
+  if (!viewing) grid = liveGrid;
+  render(data);
+  showSun(sunLayer);
+
+  if (firstView) {
+    // Open over the midnight side, where the aurora is visible
+    const sun = subsolarPoint(new Date());
+    world.pointOfView({ lat: 55, lng: ((sun.lng + 360) % 360) - 180, altitude: 2.3 }, 0);
+    firstView = false;
+  }
+  await showView(false);
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

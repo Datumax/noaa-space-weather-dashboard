@@ -5,14 +5,23 @@ on:
     - cron: "17 * * * *"   # hourly at :17, avoiding the busy top of the hour
   workflow_dispatch:        # adds a "Run workflow" button for manual runs
 
+# Needed to publish the dashboard to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 concurrency:
   group: ingest-noaa
   cancel-in-progress: false
 
 jobs:
-  ingest:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  ingest-and-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -20,6 +29,27 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python ingest_noaa.py
+
+      - name: Ingest NOAA data into Postgres
+        run: python ingest_noaa.py
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      # Runs even if one NOAA feed failed above, so the dashboard still updates
+      - name: Build dashboard data
+        id: export
+        if: ${{ !cancelled() }}
+        run: python export_dashboard.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Publish to GitHub Pages
+        if: ${{ !cancelled() && steps.export.outcome == 'success' }}
+        uses: actions/configure-pages@v5
+      - if: ${{ !cancelled() && steps.export.outcome == 'success' }}
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - id: deploy
+        if: ${{ !cancelled() && steps.export.outcome == 'success' }}
+        uses: actions/deploy-pages@v4

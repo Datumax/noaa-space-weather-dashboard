@@ -86,3 +86,29 @@ SELECT
         ELSE 'None'
     END AS storm_level
 FROM kp_index;
+
+-- One row per OVATION aurora forecast (a summary only; the full grid is
+-- ~65,000 points and lives in the dashboard's JSON file instead)
+CREATE TABLE IF NOT EXISTS aurora_summary (
+    forecast_time      TIMESTAMPTZ PRIMARY KEY,
+    observation_time   TIMESTAMPTZ,
+    north_max          SMALLINT,  -- peak probability %, northern hemisphere
+    south_max          SMALLINT,
+    north_boundary_lat REAL,      -- lowest latitude with >= 10% probability
+    south_boundary_lat REAL
+);
+
+-- Full aurora grids saved only during geomagnetic storms (Kp >= 5), for the
+-- storm gallery. Grids are zlib-compressed: mostly zeros, so ~65 KB shrinks
+-- to a few KB each.
+CREATE TABLE IF NOT EXISTS aurora_snapshots (
+    forecast_time      TIMESTAMPTZ PRIMARY KEY,
+    kp                 REAL,
+    solar_wind_speed   REAL,
+    bz                 REAL,
+    north_max          SMALLINT,
+    south_max          SMALLINT,
+    north_boundary_lat REAL,
+    south_boundary_lat REAL,
+    grid               BYTEA NOT NULL
+);
