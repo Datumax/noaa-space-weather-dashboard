@@ -36,22 +36,19 @@
   :focus-visible { outline: 2px solid var(--aurora); outline-offset: 3px; }
 
   /* ---------- layout ---------- */
+  /* Phones: globe on top, headline underneath it so nothing covers the Earth */
   .stage {
     position: relative;
-    height: 66vh;
-    height: 66svh;
-    min-height: 380px;
     background: var(--deep);
     overflow: hidden;
   }
-  #globe { position: absolute; inset: 0; }
-  .stage-copy {
-    position: absolute;
-    left: 0; right: 0; bottom: 0;
-    padding: 4rem 1.25rem 1.1rem;
-    background: linear-gradient(to top, rgba(8, 19, 34, .95) 30%, rgba(8, 19, 34, 0));
-    pointer-events: none;
+  #globe {
+    position: relative;
+    height: 58vh;
+    height: 58svh;
+    min-height: 320px;
   }
+  .stage-copy { padding: .4rem 1.25rem 1.3rem; }
   h1 {
     font: 900 clamp(1.9rem, 7vw, 2.6rem)/1.05 var(--display);
     letter-spacing: -0.02em;
@@ -78,8 +75,16 @@
 
   @media (min-width: 900px) {
     .app { display: grid; grid-template-columns: minmax(0, 1fr) 27rem; height: 100vh; }
-    .stage { height: 100vh; min-height: 0; }
-    .stage-copy { padding: 5rem 2.5rem 2rem; }
+    /* Wider screens: headline overlays the bottom of a full-height globe */
+    .stage { height: 100vh; }
+    #globe { position: absolute; inset: 0; height: auto; min-height: 0; }
+    .stage-copy {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      padding: 5rem 2.5rem 2rem;
+      background: linear-gradient(to top, rgba(8, 19, 34, .95) 30%, rgba(8, 19, 34, 0));
+      pointer-events: none;
+    }
     .panel { height: 100vh; overflow-y: auto; padding: 1.5rem 2rem 3rem; max-width: none; border-left: 1px solid var(--line); }
   }
 
@@ -156,7 +161,7 @@
   .marker span { background: rgba(8, 19, 34, .75); padding: .1rem .4rem; border-radius: .4rem; }
 
   /* ---------- solar wind streaks ---------- */
-  canvas.wind { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  canvas.wind { position: absolute; top: 0; left: 0; pointer-events: none; }
 
   /* ---------- storm gallery ---------- */
   .back-live {
@@ -305,7 +310,7 @@
 <script src="https://cdn.jsdelivr.net/npm/globe.gl@2"></script>
 <script>
 // Add your GitHub repo URL here to show a "source code" link in the footer
-const REPO_URL = "https://github.com/yourname/noaa-space-weather-dashboard";
+const REPO_URL = "";
 
 const DATA_URL = "data/dashboard.json";
 const IMG = "https://cdn.jsdelivr.net/npm/three-globe@2/example/img/";
@@ -884,6 +889,9 @@ const streaks = [];
 
 function sizeWind() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // Match the globe exactly, not the whole stage (which includes the headline on phones)
+  windCanvas.style.width = globeEl.clientWidth + "px";
+  windCanvas.style.height = globeEl.clientHeight + "px";
   windCanvas.width = globeEl.clientWidth * dpr;
   windCanvas.height = globeEl.clientHeight * dpr;
   wctx.setTransform(dpr, 0, 0, dpr, 0, 0);
